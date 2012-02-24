@@ -48,6 +48,7 @@ class MarkupLoadGCal extends WireData implements Module {
 		'from' => 0, 		// Timestamp of starting date, default = today
 		'to' => 0, 		// Timestamp of ending date, default = +1 month
 		'keywords' => '',	// Keywords to search for
+		'recurring' => true,	// Whether recurring events should be expanded (true), or (false) left as a single event.
 		); 
 
 	/**
@@ -297,6 +298,7 @@ class MarkupLoadGCal extends WireData implements Module {
 
 		if($this->keywords) $url .= 'q=' . urlencode($this->keywords) . '&';
 		if($this->limit) $url .= "max-results=" . ((int) $this->limit) . '&';
+		if($this->recurring) $url .= 'singleevents=true&';
 
 		$url = rtrim($url, '?&'); 
 		$this->items = new MarkupLoadGCalArray($this);
