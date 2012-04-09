@@ -511,9 +511,9 @@ class MarkupLoadGCal extends WireData implements Module {
 	 * Save the error message and send it on to PW
 	 *
 	 */
-	public function error($text) {
+	public function error($text, $flags = 0) {
 		$this->error = $text; 		
-		return parent::error($text); 
+		return parent::error($text, $flags); 
 	}
 }
 
