@@ -62,7 +62,7 @@ class MarkupLoadGCal extends WireData implements Module {
 		'maxLength' => 8192,			// The max number of characters allowed in any text from the feed (typically to truncate the description)
 		'stripTags' => false, 			// Strip any markup tags that appear in the feed? (default: true)
 		'encodeEntities' => false, 		// Whether to automatically decode and re-encode the entities for all fields (default: false)
-		'dateFormat' => "F j, Y, g:i a",	// Default date format to use when rendering the feed's output 
+		'dateFormat' => "%B %e, %Y, %I:%M %r",	// Default date format to use when rendering the feed's output
 		'html' => true,				// Whether to convert the 'description' to HTML
 		);
 
@@ -342,14 +342,14 @@ class MarkupLoadGCal extends WireData implements Module {
 		if($from && $a->from < $from) continue; 
 
 		// detect when an event spans multiple days
-		$a->multiDay = date('j', $a->to) != date('j', $a->from);
+		$a->multiDay = strftime('%m', $a->to) != strftime('%m', $a->from);
 
 		// subtract 1 second from the time if a multi-day event ends as 12am
 		// this prevents it from saying 3 days rather than 2. 
-		if($a->multiDay && (((int) date('Gi', $a->to)) < 1)) $a->to -= 1;
+		if($a->multiDay && (((int) strftime('%H%M', $a->to)) < 1)) $a->to -= 1;
 
-		$a->dateFrom = date($this->options['dateFormat'], $a->from); 
-		$a->dateTo = date($this->options['dateFormat'], $a->to);
+		$a->dateFrom = strftime($this->options['dateFormat'], $a->from); 
+		$a->dateTo = strftime($this->options['dateFormat'], $a->to);
 		$a->created = strtotime($item->published); 
 		$a->modified = strtotime($item->modified); 
 		$a->author = (string) $item->author->name; 
