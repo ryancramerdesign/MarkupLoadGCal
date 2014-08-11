@@ -4,8 +4,6 @@ ProcessWire Google Calendar Loader
 Given a Google Calendar XML feed URL, this module will pull it, cache it, 
 and let you foreach() it or render it. 
 
-Copyright 2011 by Ryan Cramer
-
 
 USAGE
 =====
@@ -47,8 +45,10 @@ Each calendar item has the following properties:
 - author: Author of this item
 - from: Timestamp of when the event begins
 - to: Timestamp of when the event ends
-- dateFrom: Formatted date string of when the event begins
-- dateTo: Formatted date string of when the event ends
+- dateFrom: Formatted date string of when the event begins*
+- dateTo: Formatted date string of when the event ends*
+
+*The dateFrom and dateTo properties may be PHP date() or strftime() format.
 
 See the module file for additional configuration options. 
 
@@ -137,7 +137,6 @@ SUPPORT
 
 Visit the ProcessWire forum at http://processwire.com/talk/
 
+------
 
-Copyright 2011 by Ryan Cramer
-
-
+Copyright 2014 by Ryan Cramer

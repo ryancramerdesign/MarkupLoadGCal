@@ -14,11 +14,10 @@
  * foreach($items as $item) echo "<p>{$item->title}</p>";
  *
  * ProcessWire 2.x 
- * Copyright (C) 2011 by Ryan Cramer 
+ * Copyright (C) 2014 by Ryan Cramer 
  * Licensed under GNU/GPL v2, see LICENSE.TXT
  * 
- * http://www.processwire.com
- * http://www.ryancramer.com
+ * http://processwire.com
  *
  */
 
@@ -28,7 +27,7 @@ class MarkupLoadGCal extends WireData implements Module {
 		return array(
 			'title' => 'Google Calendar Feed (GCal)', 
 			'summary' => 'Given an Google Calendar XML feed URL, this module will pull it, cache it, and let you foreach() it or render it.', 
-			'version' => 100, 
+			'version' => 101, 
 			'singular' => false, 
 			'autoload' => false, 
 			);
@@ -62,7 +61,7 @@ class MarkupLoadGCal extends WireData implements Module {
 		'maxLength' => 8192,			// The max number of characters allowed in any text from the feed (typically to truncate the description)
 		'stripTags' => false, 			// Strip any markup tags that appear in the feed? (default: true)
 		'encodeEntities' => false, 		// Whether to automatically decode and re-encode the entities for all fields (default: false)
-		'dateFormat' => "F j, Y, g:i a",	// Default date format to use when rendering the feed's output 
+		'dateFormat' => "F j, Y, g:i a",	// Default date format to use when rendering the feed's output (may be date() or strftime() format)
 		'html' => true,				// Whether to convert the 'description' to HTML
 		);
 
@@ -314,7 +313,9 @@ class MarkupLoadGCal extends WireData implements Module {
 
 		$n = 0;
 		foreach($xml->entry as $item) {
-			$this->items->add($this->makeCalendarItem($item, $from, $to)); 
+			$item = $this->makeCalendarItem($item, $from, $to);
+			if(!$item) continue; 
+			$this->items->add($item); 
 			if(++$n >= $this->settings['limit']) break;
 		}
 	}
@@ -322,7 +323,7 @@ class MarkupLoadGCal extends WireData implements Module {
 	/**
 	 * Given an XML Google Calendar item, make and return a MarkupLoadGCalItem
 	 *
-	 * @return MarkupLoadGCalItem
+	 * @return MarkupLoadGCalItem|bool Returns false if item should be skipped
 	 *
 	 */
 	protected function makeCalendarItem($item, $from, $to) {
@@ -339,7 +340,7 @@ class MarkupLoadGCal extends WireData implements Module {
 
 		// filter out events that started before the requested time 
 		// these will be multi-day events that span into the requested time
-		if($from && $a->from < $from) continue; 
+		if($from && $a->from < $from) return false;
 
 		// detect when an event spans multiple days
 		$a->multiDay = date('j', $a->to) != date('j', $a->from);
@@ -348,12 +349,21 @@ class MarkupLoadGCal extends WireData implements Module {
 		// this prevents it from saying 3 days rather than 2. 
 		if($a->multiDay && (((int) date('Gi', $a->to)) < 1)) $a->to -= 1;
 
-		$a->dateFrom = date($this->options['dateFormat'], $a->from); 
-		$a->dateTo = date($this->options['dateFormat'], $a->to);
+		if(strpos($this->options['dateFormat'], '%') !== false) {
+			// if dateFormat has a percent, that's consistent with what we see in strftime format
+			$a->dateFrom = strftime($this->options['dateFormat'], $a->from); 
+			$a->dateTo = strftime($this->options['dateFormat'], $a->to);
+		} else {
+			// regular PHP date format
+			$a->dateFrom = date($this->options['dateFormat'], $a->from); 
+			$a->dateTo = date($this->options['dateFormat'], $a->to);
+		}
 		$a->created = strtotime($item->published); 
 		$a->modified = strtotime($item->modified); 
 		$a->author = (string) $item->author->name; 
 		$a->id = (string) $item->id; 
+		$a->link = $this->cleanText($item->link['href']);
+		$a->summary = $this->cleanText($item->summary);
 
 		return $a; 
 	}
@@ -562,6 +572,8 @@ class MarkupLoadGCalItem extends WireData {
 		$this->set('modified', 0); 
 		$this->set('id', '');
 		$this->set('multiDay', false); 
+		$this->set('link', ''); 
+		$this->set('summary', ''); 
 	}
 }
 
