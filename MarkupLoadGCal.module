@@ -8,13 +8,13 @@
  * Usage: 
  *
  * $calendar = $modules->get('MarkupLoadGCal');
- * $feedURL = 'https://www.google.com/calendar/feeds/3icgo6ucgvsf6bi5orld9moqqc%40group.calendar.google.com/public/full';
+ * $feedURL = 'https://www.google.com/calendar/feeds/3icgo6ucgvsf6bi5orld9moqqc%40group.calendar.google.com/public/basic';
  * $calendar->load($feedURL); 
  * $items = $calendar->find('from=2011-12-1, to=2011-12-31');
  * foreach($items as $item) echo "<p>{$item->title}</p>";
  *
  * ProcessWire 2.x 
- * Copyright (C) 2014 by Ryan Cramer 
+ * Copyright (C) 2015 by Ryan Cramer 
  * Licensed under GNU/GPL v2, see LICENSE.TXT
  * 
  * http://processwire.com
@@ -27,7 +27,7 @@ class MarkupLoadGCal extends WireData implements Module {
 		return array(
 			'title' => 'Google Calendar Feed (GCal)', 
 			'summary' => 'Given an Google Calendar XML feed URL, this module will pull it, cache it, and let you foreach() it or render it.', 
-			'version' => 101, 
+			'version' => 200, 
 			'singular' => false, 
 			'autoload' => false, 
 			);
@@ -172,6 +172,7 @@ class MarkupLoadGCal extends WireData implements Module {
 	 * Alternate syntax to set the calendar ID (I preferred this in the API vs setCalendarID)
 	 *
 	 * @param string $calendarID Google calendar ID or http URL
+	 * @return this
 	 *
 	 */
 	public function load($calendarID) {
@@ -245,6 +246,7 @@ class MarkupLoadGCal extends WireData implements Module {
 	 *
 	 * @param string $selectorString
 	 * @return MarkupLoadGCalArray Calendar items
+	 * @throws WireException
 	 *
 	 */
 	public function find($selectorString = '') {
@@ -281,11 +283,20 @@ class MarkupLoadGCal extends WireData implements Module {
 		$from = $this->settings['from']; 
 		$to = $this->settings['to']; 
 		$calendarID = $this->settings['calendarID'];
-
-		if(strpos($calendarID, 'https://') === 0) $calendarID = str_replace('https://', 'http://', $calendarID);
-		if(strpos($calendarID, 'http://') !== 0) $url = "http://www.google.com/calendar/feeds/" . urlencode($calendarID) . "/public/full?"; 
-			else if(strpos($calendarID, '?')) $url = $calendarID . "&";
-			else $url = $calendarID . "?";
+		
+		if(strpos($calendarID, 'http') === 0) {
+			// URL supplied
+			// As of Nov 2014, google no longer makes public/full available, so we auto-fix that here
+			$calendarID = str_replace('public/full', 'public/basic', $calendarID);
+			if(strpos($calendarID, '?')) {
+				$url = $calendarID . "&";
+			} else {
+				$url = $calendarID . "?";
+			}
+		} else {
+			// calendar ID supplied
+			$url = "https://www.google.com/calendar/feeds/" . urlencode($calendarID) . "/public/basic?";
+		}
 
 		if(($from || $to) && !strpos($url, 'start-min=')) { 
 			if($from) $url .= "start-min=" . urlencode(date(DATE_ATOM, $from)) . '&'; 
@@ -329,14 +340,51 @@ class MarkupLoadGCal extends WireData implements Module {
 	protected function makeCalendarItem($item, $from, $to) {
 
 		$a = new MarkupLoadGCalItem();
-		$where = $item->where->attributes();
-		$when = $item->when->attributes();
+		
+		if(preg_match('/Event Description: (.+)/s', $item->content, $matches)) {
+			$a->description = $this->cleanText($matches[1], true);
+		} else {
+			$a->description = ''; // $this->cleanText($item->content);
+		}
+
+		$content = html_entity_decode($item->content, ENT_QUOTES, 'UTF-8');
+		// $this->wire('log')->save('gcal', $content); 
+		
+		// When: Wed Jan 21, 2015 8:30am to 10am EST
+		// date and time
+		$regex = '/When: ' .
+			'([^,]+, \d+)' .			// 1: date from: Wed Jan 21, 2015
+			'\s+([^\s<]+)' .			// 2: time from: 8:30am
+			'(?:' . 					// optionally time to	
+				'\s+to\s+' . 			// to
+				'(.+?(?:am|pm))' .		// 3: 10:30am or Sun Jan 21, 2015 10:30am
+			')?' .
+			'(?:\s+([A-Z]{3}))?' . 		// 4: EST (optional)
+			'/s';
+		
+		if(preg_match($regex, $content, $matches)) {
+			
+			$dateFrom = $matches[1];
+			$timeFrom = $matches[2];
+			$a->from = strtotime("$dateFrom $timeFrom");
+			
+			if(isset($matches[3])) {
+				// there is an ending time/date
+				$timeTo = trim($matches[3]);
+				if(strpos($timeTo, ',') !== false) $dateTo = $timeTo; 
+					else $dateTo = "$dateFrom $timeTo";
+				$a->to = strtotime($dateTo); 
+			}
+			if(isset($matches[4])) $a->timezone = $matches[4]; 
+		}
+	
+		// location
+		if(preg_match('/>Where: ([^<]+)/', $item->content, $matches)) {
+			$a->location = $this->cleanText($matches[1]);
+		}
 
 		$a->title = $this->cleanText((string) $item->title);
-		$a->description = $this->cleanText($item->content, $this->options['html']);
-		$a->location = $this->cleanText($where['valueString']);
-		$a->set('from', strtotime($when['startTime']));
-		$a->set('to', strtotime($when['endTime']));
+		//$a->description = $this->cleanText((string) $item->content, $this->options['html']);
 
 		// filter out events that started before the requested time 
 		// these will be multi-day events that span into the requested time
@@ -359,7 +407,7 @@ class MarkupLoadGCal extends WireData implements Module {
 			$a->dateTo = date($this->options['dateFormat'], $a->to);
 		}
 		$a->created = strtotime($item->published); 
-		$a->modified = strtotime($item->modified); 
+		$a->modified = strtotime($item->updated); 
 		$a->author = (string) $item->author->name; 
 		$a->id = (string) $item->id; 
 		$a->link = $this->cleanText($item->link['href']);
@@ -375,30 +423,29 @@ class MarkupLoadGCal extends WireData implements Module {
 	 */
 	protected function loadXmlData($url) {
 
-		$cacheFile = $this->cachePath . md5($url) . '.xml.cache';
+		$cacheName = 'MarkupLoadGCal-' . md5($url);
+		if($this->options['cache']) {
+			$xmlData = $this->wire('cache')->get($cacheName, $this->options['cache']);
+		} else {
+			$xmlData = '';
+		}
 
-                if(!is_file($cacheFile) || time() - filemtime($cacheFile) > $this->options['cache']) {
+		if(empty($xmlData)) {
 
-                        $xmlData = @file_get_contents($url); 
+			$http = new WireHttp();
+			$xmlData = $http->get($url);
 
-			if($xmlData === false) {
+			if(empty($xmlData)) {
 				$this->error("Unable to load " . htmlentities($url));
 				return false;
 			}
 			
-			$xmlData = str_replace(array('<gd:', '</gd:'), array('<', '</'), $xmlData);
-
 			if($this->options['cache']) {
-				@file_put_contents($cacheFile, $xmlData, LOCK_EX);
+				$this->wire('cache')->save($cacheName, $xmlData, $this->options['cache']); 
 			}
-
-                } else {
-
-			$xmlData = file_get_contents($cacheFile); 
-			if($xmlData === false) {
-				$this->error("Unable to load XML data cache");
-				return false;
-			}
+			
+		} else {
+			// loaded from cache	
 		}
 
 		return $xmlData; 	
@@ -414,16 +461,16 @@ class MarkupLoadGCal extends WireData implements Module {
 			$value = trim(strip_tags($value)); 
 		}
 
-                if($this->multibyteSupport) {
-                        if(mb_strlen($value, "UTF-8") > $this->options['maxLength']) {
+		if($this->multibyteSupport) {
+			if(mb_strlen($value, "UTF-8") > $this->options['maxLength']) {
 				$value = mb_substr($value, 0, $this->options['maxLength'], "UTF-8");
 			}
 
-                } else {
-                        if(strlen($value) > $this->options['maxLength']) {
+		} else {
+			if(strlen($value) > $this->options['maxLength']) {
 				$value = substr($value, 0, $this->options['maxLength']);
 			}
-                }
+		}
 
 		if($this->options['encodeEntities']) {
 			$value = html_entity_decode($value, ENT_QUOTES, "UTF-8"); 
@@ -492,11 +539,6 @@ class MarkupLoadGCal extends WireData implements Module {
 	 *
 	 */
 	public function ___install() {
-
-		if(ini_get('allow_url_fopen') == "0") {
-			throw new WireException("Cannot install '{$this->className}' because it requires PHP's 'allow_url_fopen' which is disabled on your server."); 
-		}
-
 		$path = $this->cachePath; 
 		if(!is_dir($path)) {
 			if(!mkdir($path)) throw new WireException("Unable to create directory: $path"); 
@@ -561,7 +603,8 @@ class MarkupLoadGCalArray extends WireArray {
 class MarkupLoadGCalItem extends WireData { 
 	public function __construct() {
 		$this->set('title', '');
-		$this->set('description', ''); 
+		$this->set('description', '');
+		$this->set('descriptionHTML', ''); 
 		$this->set('location', '');
 		$this->set('author', '');
 		$this->set('from', 0);
